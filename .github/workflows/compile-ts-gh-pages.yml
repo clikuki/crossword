@@ -1,0 +1,31 @@
+name: Build TS for GH pages
+on:
+ push:
+  branches:
+   - "main"
+  pull_request:
+
+jobs:
+ build_and_deploy:
+  runs-on: ubuntu-latest
+  steps:
+   - name: Checkout
+     uses: actions/checkout@v4
+
+   - name: Use Node.js
+     uses: actions/setup-node@v4
+     with:
+      node-version: "22.x"
+
+   - name: Install
+     run: npm ci
+
+   - name: Build
+     run: npm run build --if-present
+
+   - name: Deploy
+     uses: peaceiris/actions-gh-pages@v4.0.0
+     if: github.ref == 'refs/heads/main'
+     with:
+      github_token: ${{ secrets.GITHUB_TOKEN }}
+      publish_dir: ./out

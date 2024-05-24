@@ -1,0 +1,13 @@
+{
+	"name": "crosswords",
+	"private": true,
+	"scripts": {
+		"build": "tsc --sourceMap false",
+		"watch": "tsc -w"
+	},
+	"author": "clikuki",
+	"license": "MIT",
+	"dependencies": {
+		"typescript": "^5.4.5"
+	}
+}
