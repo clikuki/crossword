@@ -1,3 +1,6 @@
 /node_modules
 /out/*.js
 /out/*.js.map
+
+# Test scripts in nodeJs
+/scripts

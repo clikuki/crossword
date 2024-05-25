@@ -1,0 +1,7 @@
+package.json
+package-lock.json
+pnpm-lock.yaml
+out/*.js
+out/*.js.map
+out/words.json
+node_modules/
