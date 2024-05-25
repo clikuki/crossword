@@ -12,16 +12,16 @@ jobs:
    - name: Checkout
      uses: actions/checkout@v4
 
-   - name: Use Node.js
+   - name: Node.js setup
      uses: actions/setup-node@v4
      with:
       node-version: "22.x"
 
-   - name: Install
-     run: npm ci
+   - name: Install typescript
+     run: npm install --save-dev typescript
 
    - name: Build
-     run: npm run build --if-present
+     run: npx tsc --sourceMap false
 
    - name: Deploy
      uses: peaceiris/actions-gh-pages@v4.0.0
