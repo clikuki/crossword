@@ -95,6 +95,12 @@ class Words {
 	}
 }
 
+const enum OVERLAP {
+	NONE,
+	MATCH, // Same letters
+	SIDE, // Letters on side
+	DIFF, // Non-matching letters
+}
 class WordGrid {
 	public space: [string, number][][] = [];
 	public words = new Map<string, [number, number][]>(); // Track positions of words
@@ -155,16 +161,34 @@ class WordGrid {
 		return true;
 	}
 
-	public overlap(word: string, x: number, y: number, isHorz = true): boolean {
+	public overlap(word: string, x: number, y: number, isHorz = true): OVERLAP {
+		let letterOverlap = false;
 		for (let i = 0; i < word.length; i++) {
-			// Check if letter at x,y exists AND differs from current letter
-			if (this.space[x]?.[y] && this.space[x][y][0] === word[i]) return true;
+			// Check if letter at x,y exists ...
+			let letterMatch = false;
+			if (this.space[x]?.[y]) {
+				letterOverlap = true;
+				// ... AND differs from current letter
+				console.log(x, y, this.space[x][y][0]);
+				if (this.space[x][y][0] !== word[i]) return OVERLAP.DIFF;
+				else letterMatch = true;
+			}
+
+			// Check top and bottom
+			const areaCheck: [number, number][] = [];
+			if (isHorz || i === 0) areaCheck.push([x, y - 1]);
+			if (isHorz || i === word.length - 1) areaCheck.push([x, y + 1]);
+			if (!isHorz || i === 0) areaCheck.push([x - 1, y]);
+			if (!isHorz || i === word.length - 1) areaCheck.push([x + 1, y]);
+			for (const [ax, ay] of areaCheck) {
+				if (this.space[ax]?.[ay]) return OVERLAP.SIDE;
+			}
 
 			// Move along word
 			if (isHorz) x++;
 			else y++;
 		}
-		return false;
+		return letterOverlap ? OVERLAP.MATCH : OVERLAP.NONE;
 	}
 
 	public stringify(): string {
@@ -184,11 +208,11 @@ class WordGrid {
 		}
 
 		let str = "";
-		for (let y = this.usedArea[1]; y <= this.usedArea[3]; y++) {
-			for (let x = this.usedArea[0]; x <= this.usedArea[2]; x++) {
+		for (let y = this.usedArea[1]; y + 1 <= this.usedArea[3]; y++) {
+			for (let x = this.usedArea[0]; x + 1 <= this.usedArea[2]; x++) {
 				str += this.space[x]?.[y]?.[0] ?? " ";
 			}
-			if (y + 1 != this.usedArea[3]) str += "\n";
+			if (y <= this.usedArea[3]) str += "\n";
 		}
 		return str;
 	}
@@ -196,19 +220,43 @@ class WordGrid {
 
 async function main() {
 	const [parent] = await Words.getRandom(1, 6);
-	const child = await Words.getWordWithChars(4, parent);
-	console.log(parent, child);
+	const [child] = await Words.getWordWithChars(1, parent);
+	const [grandchild] = await Words.getWordWithChars(1, child);
+	console.log(parent, child, grandchild);
 
 	const grid = new WordGrid();
 	grid.add(parent, 0, 0);
+	console.log(
+		grid.overlap(
+			child,
+			parent.split("").findIndex((char) => char === child[0]),
+			0,
+			false
+		)
+	);
 	grid.add(
-		child[0],
-		parent.split("").findIndex((char) => char === child[0][0]),
+		child,
+		parent.split("").findIndex((char) => char === child[0]),
 		0,
 		false
 	);
-	console.log(grid.stringify());
-	// console.log(grid.space);
+
+	const gridStr = grid.stringify();
+	const table = document.createElement("table");
+	let curRow;
+	for (const char of gridStr) {
+		if (!curRow || char === "\n") {
+			curRow = document.createElement("tr");
+			table.appendChild(curRow);
+		}
+		if (char !== "\n") {
+			const charEl = document.createElement("td");
+			if (char !== " ") charEl.textContent = char;
+			curRow.appendChild(charEl);
+		}
+	}
+	document.body.appendChild(table);
+	console.log(gridStr);
 }
 
 main();
