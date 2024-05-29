@@ -5,10 +5,17 @@ table {
 	letter-spacing: 1px;
 	text-align: center;
 	text-transform: uppercase;
+	--cell-size: 2.5rem;
 }
 
-td:not(:empty) {
+tr {
+	height: var(--cell-size);
+}
+td {
 	border: 2px solid black;
-	width: 2rem;
-	height: 2rem;
+	width: var(--cell-size);
+	height: var(--cell-size);
+}
+td:empty {
+	border: none;
 }
