@@ -4,4 +4,5 @@ pnpm-lock.yaml
 out/*.js
 out/*.js.map
 out/words.json
+words_og.json
 node_modules/

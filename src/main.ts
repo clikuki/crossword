@@ -2,38 +2,71 @@
 // TODO: Remove weird words in dataset
 
 const ERRORS = {
-	WORD_LENGTH: new Error("No word with requested length"),
-	CHAR_MATCH: new Error("Failed to find word with same letters"),
+	WORD_LENGTH: "No word with requested length",
+	CHAR_MATCH: "Failed to find word with same letters",
+	RAND_TIME: "Failed to find word within reasonable time",
 };
 class Words {
-	private static list: string[];
-	private static listByLen = new Map<number, string[]>();
+	private static list: [string, number][];
+	private static listByLen = new Map<number, [string, number][]>();
 	private static async init(): Promise<void> {
 		const response = await fetch("./words.json");
 		this.list = await response.json();
 
 		// Group words by length
-		for (const word of this.list) {
+		for (const [word, freq] of this.list) {
 			const group =
 				this.listByLen.get(word.length) ??
 				(() => {
-					const newGroup: string[] = [];
+					const newGroup: [string, number][] = [];
 					this.listByLen.set(word.length, newGroup);
 					return [];
 				})();
-			group.push(word);
+			group.push([word, freq]);
 		}
 	}
 
 	public static async getRandom(cnt: number, wordLen = NaN): Promise<string[]> {
 		if (!this.list) await this.init();
 
-		const searchOn = isNaN(wordLen) ? this.list : this.listByLen.get(wordLen);
-		if (!searchOn) throw ERRORS.WORD_LENGTH;
-
-		return new Array(cnt)
-			.fill(0)
-			.map(() => searchOn[Math.floor(Math.random() * searchOn.length)]);
+		const used = new Set<string>();
+		if (isNaN(wordLen)) {
+			const totalWeight = this.list.reduce((acc, [, cur]) => acc + cur, 0);
+			return new Array(cnt).fill(0).map(() => {
+				for (let _ = 0; _ < 1000; _++) {
+					let index = randInt(totalWeight);
+					for (let i = 0; i < this.list.length; i++) {
+						const [word, weight] = this.list[i];
+						if (index < weight && !used.has(word)) {
+							used.add(word);
+							return word;
+						} else {
+							index -= weight;
+						}
+					}
+				}
+				throw new Error(ERRORS.RAND_TIME);
+			});
+		} else {
+			const group = this.listByLen.get(wordLen);
+			if (!group) throw new Error(ERRORS.WORD_LENGTH);
+			const totalWeight = group.reduce((acc, [, cur]) => acc + cur, 0);
+			return new Array(cnt).fill(0).map(() => {
+				for (let _ = 0; _ < 1000; _++) {
+					let index = randInt(totalWeight);
+					for (let i = 0; i < group.length; i++) {
+						const [word, weight] = group[i];
+						if (index < weight && !used.has(word)) {
+							used.add(word);
+							return word;
+						} else {
+							index -= weight;
+						}
+					}
+				}
+				throw new Error(ERRORS.RAND_TIME);
+			});
+		}
 	}
 
 	// Get words that contain only the letters from a given word
@@ -43,40 +76,29 @@ class Words {
 	): Promise<string[]> {
 		if (!this.list) await this.init();
 
-		let searchRange = 0;
-		const searchArrays: string[][] = [];
-		for (let i = 2; i <= from.length; i++) {
+		const searchOn: [string, number][] = [];
+		for (let i = 3; i <= from.length; i++) {
 			if (this.listByLen.has(i)) {
 				const group = this.listByLen.get(i)!;
-				searchArrays.push(group);
-				searchRange += group.length;
+				searchOn.push(...group);
 			}
 		}
-
+		const totalWeight = searchOn.reduce((acc, [, cur]) => acc + cur, 0);
 		const avoid = [undefined, from];
 		return new Array(cnt).fill(0).map(() => {
-			let word: string | undefined;
-			let tryCount = 50000; // scale tryCount against cnt?
-			while (avoid.includes(word) || !this.areCharacterSubsets(from, word!)) {
-				if (tryCount-- <= 0) {
-					throw ERRORS.CHAR_MATCH;
-				}
-
-				let index = Math.floor(Math.random() * searchRange);
-				let searchArrIndex = 0;
-				while (true) {
-					const curArrayLen = searchArrays[searchArrIndex].length;
-					if (index >= curArrayLen) {
-						index -= curArrayLen;
-						searchArrIndex++;
+			for (let _ = 0; _ < 1000; _++) {
+				let index = randInt(totalWeight);
+				for (let i = 0; i < searchOn.length; i++) {
+					const [word, weight] = searchOn[i];
+					if (index < weight && !avoid.includes(word)) {
+						avoid.push(word);
+						return word;
 					} else {
-						break;
+						index -= weight;
 					}
 				}
-
-				word = searchArrays[searchArrIndex][index];
 			}
-			return word!;
+			throw new Error(ERRORS.RAND_TIME);
 		});
 	}
 
@@ -287,7 +309,7 @@ function shuffle<T>(arr: T[]): T[] {
 async function main() {
 	const grid = new Grid();
 
-	const [root] = await Words.getRandom(randInt(15, 6));
+	const [root] = await Words.getRandom(1, randInt(15, 6));
 	grid.add(root, 0, 0, randBool());
 
 	let fails = 0;
