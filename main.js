@@ -2,8 +2,9 @@
 // TODO: Use bigger but dirtier english dataset > https://github.com/harshnative/words-dataset
 // TODO: Remove weird words in dataset
 const ERRORS = {
-    WORD_LENGTH: new Error("No word with requested length"),
-    CHAR_MATCH: new Error("Failed to find word with same letters"),
+    WORD_LENGTH: "No word with requested length",
+    CHAR_MATCH: "Failed to find word with same letters",
+    RAND_TIME: "Failed to find word within reasonable time",
 };
 class Words {
     static list;
@@ -12,62 +13,90 @@ class Words {
         const response = await fetch("./words.json");
         this.list = await response.json();
         // Group words by length
-        for (const word of this.list) {
+        for (const [word, freq] of this.list) {
             const group = this.listByLen.get(word.length) ??
                 (() => {
                     const newGroup = [];
                     this.listByLen.set(word.length, newGroup);
                     return [];
                 })();
-            group.push(word);
+            group.push([word, freq]);
         }
     }
     static async getRandom(cnt, wordLen = NaN) {
         if (!this.list)
             await this.init();
-        const searchOn = isNaN(wordLen) ? this.list : this.listByLen.get(wordLen);
-        if (!searchOn)
-            throw ERRORS.WORD_LENGTH;
-        return new Array(cnt)
-            .fill(0)
-            .map(() => searchOn[Math.floor(Math.random() * searchOn.length)]);
+        const used = new Set();
+        if (isNaN(wordLen)) {
+            const totalWeight = this.list.reduce((acc, [, cur]) => acc + cur, 0);
+            return new Array(cnt).fill(0).map(() => {
+                for (let _ = 0; _ < 1000; _++) {
+                    let index = randInt(totalWeight);
+                    for (let i = 0; i < this.list.length; i++) {
+                        const [word, weight] = this.list[i];
+                        if (index < weight && !used.has(word)) {
+                            used.add(word);
+                            return word;
+                        }
+                        else {
+                            index -= weight;
+                        }
+                    }
+                }
+                throw new Error(ERRORS.RAND_TIME);
+            });
+        }
+        else {
+            const group = this.listByLen.get(wordLen);
+            if (!group)
+                throw new Error(ERRORS.WORD_LENGTH);
+            const totalWeight = group.reduce((acc, [, cur]) => acc + cur, 0);
+            return new Array(cnt).fill(0).map(() => {
+                for (let _ = 0; _ < 1000; _++) {
+                    let index = randInt(totalWeight);
+                    for (let i = 0; i < group.length; i++) {
+                        const [word, weight] = group[i];
+                        if (index < weight && !used.has(word)) {
+                            used.add(word);
+                            return word;
+                        }
+                        else {
+                            index -= weight;
+                        }
+                    }
+                }
+                throw new Error(ERRORS.RAND_TIME);
+            });
+        }
     }
     // Get words that contain only the letters from a given word
     static async getWordWithChars(cnt, from) {
         if (!this.list)
             await this.init();
-        let searchRange = 0;
-        const searchArrays = [];
-        for (let i = 2; i <= from.length; i++) {
+        const searchOn = [];
+        for (let i = 3; i <= from.length; i++) {
             if (this.listByLen.has(i)) {
                 const group = this.listByLen.get(i);
-                searchArrays.push(group);
-                searchRange += group.length;
+                searchOn.push(...group);
             }
         }
+        const totalWeight = searchOn.reduce((acc, [, cur]) => acc + cur, 0);
         const avoid = [undefined, from];
         return new Array(cnt).fill(0).map(() => {
-            let word;
-            let tryCount = 50000; // scale tryCount against cnt?
-            while (avoid.includes(word) || !this.areCharacterSubsets(from, word)) {
-                if (tryCount-- <= 0) {
-                    throw ERRORS.CHAR_MATCH;
-                }
-                let index = Math.floor(Math.random() * searchRange);
-                let searchArrIndex = 0;
-                while (true) {
-                    const curArrayLen = searchArrays[searchArrIndex].length;
-                    if (index >= curArrayLen) {
-                        index -= curArrayLen;
-                        searchArrIndex++;
+            for (let _ = 0; _ < 1000; _++) {
+                let index = randInt(totalWeight);
+                for (let i = 0; i < searchOn.length; i++) {
+                    const [word, weight] = searchOn[i];
+                    if (index < weight && !avoid.includes(word)) {
+                        avoid.push(word);
+                        return word;
                     }
                     else {
-                        break;
+                        index -= weight;
                     }
                 }
-                word = searchArrays[searchArrIndex][index];
             }
-            return word;
+            throw new Error(ERRORS.RAND_TIME);
         });
     }
     static letterCount(word) {
@@ -88,8 +117,7 @@ class Words {
         return true;
     }
 }
-// TODO: fix extra space after stringify form
-class WordGrid {
+class Grid {
     space = [];
     wordList = [];
     wordMap = new Map(); // Track positions of words
@@ -109,9 +137,14 @@ class WordGrid {
             if (!this.space[x])
                 this.space[x] = [];
             if (!this.space[x][y])
-                this.space[x][y] = [word[i], 1];
-            else
-                this.space[x][y][1]++;
+                this.space[x][y] = {
+                    horz: isHorz ? word : "",
+                    vert: isHorz ? "" : word,
+                    char: word[i],
+                };
+            else {
+                this.space[x][y][isHorz ? "horz" : "vert"] = word;
+            }
             // Save letter position, then move along word
             posArr[i] = [x, y];
             if (isHorz)
@@ -132,6 +165,7 @@ class WordGrid {
         if (this.wordMap.has(word))
             return false;
         const posArr = this.wordMap.get(word);
+        const dirKey = this.isHorizontal(word) ? "horz" : "vert";
         for (let i = 0; i < word.length; i++) {
             // If letter cnt < 1, delete letter
             const [x, y] = posArr[i];
@@ -142,7 +176,8 @@ class WordGrid {
                 y >= this.usedArea[3]) {
                 this.outdatedArea = true;
             }
-            if (--this.space[x][y][1] < 1) {
+            this.space[x][y][dirKey] = "";
+            if (!this.space[x][y].horz && !this.space[x][y].vert) {
                 delete this.space[x][y];
             }
         }
@@ -162,11 +197,14 @@ class WordGrid {
         for (let i = 0; i < word.length; i++) {
             // Check if letter at x,y exists ...
             if (this.space[x]?.[y]) {
-                // ... AND differs from current letter
-                if (this.space[x][y][0] !== word[i])
+                // ... AND runs along same direction OR differs from current letter
+                if (this.space[x][y][isHorz ? "horz" : "vert"] ||
+                    this.space[x][y].char !== word[i]) {
                     return 3 /* OVERLAP.DIFF */;
-                else
+                }
+                else {
                     overlap = [x, y];
+                }
             }
             // Check top and bottom
             const surroundCheck = [];
@@ -190,6 +228,13 @@ class WordGrid {
         }
         return overlap ? 1 /* OVERLAP.MATCH */ : 0 /* OVERLAP.NONE */;
     }
+    isHorizontal(word) {
+        const wordPos = this.wordMap.get(word);
+        if (wordPos)
+            return wordPos[0][0] !== wordPos[1][0];
+        return null;
+    }
+    // TODO: fix extra space after stringify form
     stringify() {
         if (this.outdatedArea) {
             this.usedArea = [...this.wordMap.values()].reduce(([lx, ly, hx, hy], list) => {
@@ -207,7 +252,7 @@ class WordGrid {
         let str = "";
         for (let y = this.usedArea[1]; y < this.usedArea[3]; y++) {
             for (let x = this.usedArea[0]; x < this.usedArea[2]; x++) {
-                const letter = this.space[x]?.[y]?.[0] ?? " ";
+                const letter = this.space[x]?.[y]?.char ?? " ";
                 str += letter;
             }
             if (y < this.usedArea[3])
@@ -236,16 +281,21 @@ function shuffle(arr) {
     return arr;
 }
 async function main() {
-    const grid = new WordGrid();
-    const [root] = await Words.getRandom(randInt(15, 6));
+    const grid = new Grid();
+    const [root] = await Words.getRandom(1, randInt(15, 6));
     grid.add(root, 0, 0, randBool());
-    for (let _ = 0; _ < 100; _++) {
+    let fails = 0;
+    const cycles = 10;
+    for (let _ = 0; _ < cycles; _++) {
         try {
             const branch = grid.wordList[randInt(grid.wordList.length)];
             const branchPos = grid.wordMap.get(branch);
+            const childIsHorz = !grid.isHorizontal(branch);
             const children = await Words.getWordWithChars(5, root);
-            const childIsHorz = branchPos[0][0] === branchPos[1][0];
+            fails++;
             placeWord: for (const child of children) {
+                if (grid.wordMap.has(child))
+                    continue;
                 const randomIndices = shuffle(Array(child.length)
                     .fill(0)
                     .map((_, i) => i));
@@ -258,8 +308,8 @@ async function main() {
                         x -= childIndex;
                     else
                         y -= childIndex;
-                    if (!grid.wordMap.has(child) &&
-                        grid.overlap(child, x, y, childIsHorz) <= 1 /* OVERLAP.MATCH */) {
+                    if (grid.overlap(child, x, y, childIsHorz) <= 1 /* OVERLAP.MATCH */) {
+                        fails--;
                         grid.add(child, x, y, childIsHorz);
                         break placeWord;
                     }
@@ -271,6 +321,7 @@ async function main() {
                 throw err;
         }
     }
+    console.log(fails / cycles);
     const gridStr = grid.stringify();
     const table = document.createElement("table");
     let curRow;
