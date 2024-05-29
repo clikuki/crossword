@@ -105,9 +105,13 @@ const enum OVERLAP {
 	SIDE, // Letters on side
 	DIFF, // Non-matching letters
 }
-// TODO: fix extra space after stringify form
-class WordGrid {
-	public space: [string, number][][] = [];
+interface Cell {
+	horz: string;
+	vert: string;
+	char: string;
+}
+class Grid {
+	public space: Cell[][] = [];
 	public wordList: string[] = [];
 	public wordMap = new Map<string, [number, number][]>(); // Track positions of words
 	public usedArea = [Infinity, Infinity, -Infinity, -Infinity]; // Left, Top, Right, Bottom
@@ -124,8 +128,15 @@ class WordGrid {
 		for (let i = 0; i < word.length; i++) {
 			// Set letter at space or inc letter count
 			if (!this.space[x]) this.space[x] = [];
-			if (!this.space[x][y]) this.space[x][y] = [word[i], 1];
-			else this.space[x][y][1]++;
+			if (!this.space[x][y])
+				this.space[x][y] = {
+					horz: isHorz ? word : "",
+					vert: isHorz ? "" : word,
+					char: word[i],
+				};
+			else {
+				this.space[x][y][isHorz ? "horz" : "vert"] = word;
+			}
 
 			// Save letter position, then move along word
 			posArr[i] = [x, y];
@@ -145,6 +156,7 @@ class WordGrid {
 	public del(word: string): boolean {
 		if (this.wordMap.has(word)) return false;
 		const posArr = this.wordMap.get(word)!;
+		const dirKey = this.isHorizontal(word) ? "horz" : "vert";
 		for (let i = 0; i < word.length; i++) {
 			// If letter cnt < 1, delete letter
 			const [x, y] = posArr[i];
@@ -159,7 +171,8 @@ class WordGrid {
 				this.outdatedArea = true;
 			}
 
-			if (--this.space[x][y][1] < 1) {
+			this.space[x][y][dirKey] = "";
+			if (!this.space[x][y].horz && !this.space[x][y].vert) {
 				delete this.space[x][y];
 			}
 		}
@@ -181,9 +194,15 @@ class WordGrid {
 		for (let i = 0; i < word.length; i++) {
 			// Check if letter at x,y exists ...
 			if (this.space[x]?.[y]) {
-				// ... AND differs from current letter
-				if (this.space[x][y][0] !== word[i]) return OVERLAP.DIFF;
-				else overlap = [x, y];
+				// ... AND runs along same direction OR differs from current letter
+				if (
+					this.space[x][y][isHorz ? "horz" : "vert"] ||
+					this.space[x][y].char !== word[i]
+				) {
+					return OVERLAP.DIFF;
+				} else {
+					overlap = [x, y];
+				}
 			}
 
 			// Check top and bottom
@@ -208,6 +227,13 @@ class WordGrid {
 		return overlap ? OVERLAP.MATCH : OVERLAP.NONE;
 	}
 
+	public isHorizontal(word: string): boolean | null {
+		const wordPos = this.wordMap.get(word);
+		if (wordPos) return wordPos[0][0] !== wordPos[1][0];
+		return null;
+	}
+
+	// TODO: fix extra space after stringify form
 	public stringify(): string {
 		if (this.outdatedArea) {
 			this.usedArea = [...this.wordMap.values()].reduce(
@@ -229,7 +255,7 @@ class WordGrid {
 		let str = "";
 		for (let y = this.usedArea[1]; y < this.usedArea[3]; y++) {
 			for (let x = this.usedArea[0]; x < this.usedArea[2]; x++) {
-				const letter = this.space[x]?.[y]?.[0] ?? " ";
+				const letter = this.space[x]?.[y]?.char ?? " ";
 				str += letter;
 			}
 			if (y < this.usedArea[3]) str += "\n";
@@ -259,18 +285,23 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 async function main() {
-	const grid = new WordGrid();
+	const grid = new Grid();
 
 	const [root] = await Words.getRandom(randInt(15, 6));
 	grid.add(root, 0, 0, randBool());
-	for (let _ = 0; _ < 100; _++) {
+
+	let fails = 0;
+	const cycles = 10;
+	for (let _ = 0; _ < cycles; _++) {
 		try {
 			const branch = grid.wordList[randInt(grid.wordList.length)];
 			const branchPos = grid.wordMap.get(branch)!;
+			const childIsHorz = !grid.isHorizontal(branch);
 			const children = await Words.getWordWithChars(5, root);
-			const childIsHorz = branchPos[0][0] === branchPos[1][0];
 
+			fails++;
 			placeWord: for (const child of children) {
+				if (grid.wordMap.has(child)) continue;
 				const randomIndices = shuffle(
 					Array(child.length)
 						.fill(0)
@@ -285,10 +316,8 @@ async function main() {
 					if (childIsHorz) x -= childIndex;
 					else y -= childIndex;
 
-					if (
-						!grid.wordMap.has(child) &&
-						grid.overlap(child, x, y, childIsHorz) <= OVERLAP.MATCH
-					) {
+					if (grid.overlap(child, x, y, childIsHorz) <= OVERLAP.MATCH) {
+						fails--;
 						grid.add(child, x, y, childIsHorz);
 						break placeWord;
 					}
@@ -298,6 +327,7 @@ async function main() {
 			if (err !== ERRORS.CHAR_MATCH) throw err;
 		}
 	}
+	console.log(fails / cycles);
 
 	const gridStr = grid.stringify();
 	const table = document.createElement("table");
