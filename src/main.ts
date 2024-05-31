@@ -1,12 +1,25 @@
 // TODO: Use bigger but dirtier english dataset > https://github.com/harshnative/words-dataset
 // TODO: Remove weird words in dataset
 
+interface WordData {
+	count?: number;
+	length?: number | [min: number, max: number];
+	characters?: {
+		useExact: boolean;
+		from: string;
+	};
+}
 const ERRORS = {
 	WORD_LENGTH: "No word with requested length",
 	CHAR_MATCH: "Failed to find word with same letters",
 	RAND_TIME: "Failed to find word within reasonable time",
+
+	IMPROPER_LENGTH: "Invalid word length",
+	INVALID_CHARS: "Invalid character list",
 };
 class Words {
+	private static min_word_len = 3;
+	private static max_word_len = -Infinity;
 	private static list: [string, number][];
 	private static listByLen = new Map<number, [string, number][]>();
 	private static async init(): Promise<void> {
@@ -20,78 +33,54 @@ class Words {
 				(() => {
 					const newGroup: [string, number][] = [];
 					this.listByLen.set(word.length, newGroup);
+					if (word.length > this.max_word_len) this.max_word_len = word.length;
 					return [];
 				})();
 			group.push([word, freq]);
 		}
 	}
 
-	public static async getRandom(cnt: number, wordLen = NaN): Promise<string[]> {
+	public static async get({
+		count = 1,
+		length,
+		characters,
+	}: WordData): Promise<string[]> {
 		if (!this.list) await this.init();
+		if (count <= 0) return [];
+		switch (typeof length) {
+			case "number":
+				if (length < this.min_word_len) throw new Error(ERRORS.IMPROPER_LENGTH);
+				length = [length, length];
+				break;
+			case "object":
+				if (Math.min(...length) < this.min_word_len)
+					throw new Error(ERRORS.IMPROPER_LENGTH);
+				if (length[0] > length[1]) length[1] = length[0];
+				break;
+		}
+		if (characters && !/^[a-z]*$/i.test(characters.from))
+			throw new Error(ERRORS.INVALID_CHARS);
 
+		const list = length
+			? [...this.listByLen.entries()]
+					.filter(([len]) => len >= length[0] && len <= length[1])
+					.flatMap(([, list]) => list)
+			: this.list;
+		const totalWeight = list.reduce((a, b) => a + b[1], 0);
 		const used = new Set<string>();
-		if (isNaN(wordLen)) {
-			const totalWeight = this.list.reduce((acc, [, cur]) => acc + cur, 0);
-			return new Array(cnt).fill(0).map(() => {
-				for (let _ = 0; _ < 1000; _++) {
-					let index = randInt(totalWeight);
-					for (let i = 0; i < this.list.length; i++) {
-						const [word, weight] = this.list[i];
-						if (index < weight && !used.has(word)) {
-							used.add(word);
-							return word;
-						} else {
-							index -= weight;
-						}
-					}
-				}
-				throw new Error(ERRORS.RAND_TIME);
-			});
-		} else {
-			const group = this.listByLen.get(wordLen);
-			if (!group) throw new Error(ERRORS.WORD_LENGTH);
-			const totalWeight = group.reduce((acc, [, cur]) => acc + cur, 0);
-			return new Array(cnt).fill(0).map(() => {
-				for (let _ = 0; _ < 1000; _++) {
-					let index = randInt(totalWeight);
-					for (let i = 0; i < group.length; i++) {
-						const [word, weight] = group[i];
-						if (index < weight && !used.has(word)) {
-							used.add(word);
-							return word;
-						} else {
-							index -= weight;
-						}
-					}
-				}
-				throw new Error(ERRORS.RAND_TIME);
-			});
-		}
-	}
 
-	// Get words that contain only the letters from a given word
-	public static async getWordWithChars(
-		cnt: number,
-		from: string
-	): Promise<string[]> {
-		if (!this.list) await this.init();
-
-		const searchOn: [string, number][] = [];
-		for (let i = 3; i <= from.length; i++) {
-			if (this.listByLen.has(i)) {
-				const group = this.listByLen.get(i)!;
-				searchOn.push(...group);
-			}
-		}
-		const totalWeight = searchOn.reduce((acc, [, cur]) => acc + cur, 0);
-		const avoid = [undefined, from];
-		return new Array(cnt).fill(0).map(() => {
+		return new Array(count).fill(0).map(() => {
+			// Prevent infinite loop
 			for (let _ = 0; _ < 1000; _++) {
 				let index = randInt(totalWeight);
-				for (let i = 0; i < searchOn.length; i++) {
-					const [word, weight] = searchOn[i];
-					if (index < weight && !avoid.includes(word)) {
-						avoid.push(word);
+				for (const [word, weight] of list) {
+					if (
+						index < weight &&
+						!used.has(word) &&
+						(!characters ||
+							this.containsLetters(characters.from, word, characters.useExact))
+					) {
+						used.add(word);
 						return word;
 					} else {
 						index -= weight;
@@ -102,22 +91,31 @@ class Words {
 		});
 	}
 
-	public static letterCount(word: string): Map<string, number> {
+	private static letterCount(word: string): Map<string, number> {
 		return word.split("").reduce((map, letter) => {
 			map.set(letter, (map.get(letter) ?? 0) + 1);
 			return map;
 		}, new Map<string, number>());
 	}
-	public static areCharacterSubsets(a: string, b: string): boolean {
-		if (b.length > a.length) return false;
-		const parentFreq = this.letterCount(a);
-		const childFreq = this.letterCount(b);
+	private static containsLetters(
+		from: string,
+		child: string,
+		strict = false
+	): boolean {
+		// Child only uses the letters present in from, including the number a letter appears
+		if (strict) {
+			if (child.length > from.length) return false;
+			const parentFreq = this.letterCount(from);
+			const childFreq = this.letterCount(child);
 
-		for (const [letter, cnt] of childFreq) {
-			if (!parentFreq.has(letter) || parentFreq.get(letter)! < cnt) return false;
+			for (const [letter, cnt] of childFreq) {
+				if (!parentFreq.has(letter) || parentFreq.get(letter)! < cnt) return false;
+			}
+
+			return true;
 		}
-
-		return true;
+		// child has at least one of the letters in from
+		else return from.split("").some((char) => child.includes(char));
 	}
 }
 
@@ -308,18 +306,24 @@ function shuffle<T>(arr: T[]): T[] {
 
 async function main() {
 	const grid = new Grid();
+	// @ts-expect-error
+	window.w = Words;
 
-	const [root] = await Words.getRandom(1, randInt(15, 6));
+	const [root] = await Words.get({ length: [6, 20] });
 	grid.add(root, 0, 0, randBool());
+	console.log(root);
 
 	let fails = 0;
-	const cycles = 10;
+	const cycles = 100;
 	for (let _ = 0; _ < cycles; _++) {
 		try {
 			const branch = grid.wordList[randInt(grid.wordList.length)];
 			const branchPos = grid.wordMap.get(branch)!;
 			const childIsHorz = !grid.isHorizontal(branch);
-			const children = await Words.getWordWithChars(5, root);
+			const children = await Words.get({
+				count: 5,
+				characters: { from: root, useExact: true },
+			});
 
 			fails++;
 			placeWord: for (const child of children) {
