@@ -60,9 +60,9 @@ class Words {
         if (ignore && Array.isArray(ignore))
             ignore = new Set(ignore);
         let totalWeight = 0;
-        const list = shuffleNew(length === undefined
-            ? this.list
-            : [...this.listByLen.entries()]
+        const list = length === undefined
+            ? shuffleNew(this.list)
+            : shuffleInPlace([...this.listByLen.entries()]
                 .filter(([len]) => len >= length[0] && len <= length[1])
                 .flatMap(([, list]) => list.filter(([word, freq]) => {
                 const match = word != chars?.from &&
@@ -181,7 +181,7 @@ class Grid {
         this.wordMap.delete(word);
         return true;
     }
-    overlap(word, x, y, isHorz = true) {
+    overlap(word, x, y, isHorz = true, noCornerTouching = true) {
         let overlap;
         for (let i = 0; i < word.length; i++) {
             // Check if letter at x,y exists ...
@@ -195,10 +195,20 @@ class Grid {
                     overlap = [x, y];
                 }
             }
-            // Check top and bottom
+            // Check if cell touches existing letters
             const surroundCheck = [];
             const isMatched = JSON.stringify(overlap) === `[${x},${y}]`;
             const last = word.length - 1;
+            if (noCornerTouching) {
+                if (i === 0)
+                    surroundCheck.push([x - 1, y - 1]);
+                if ((isHorz && i === last) || (!isHorz && i === 0))
+                    surroundCheck.push([x - 1, y + 1]);
+                if ((isHorz && i === 0) || (!isHorz && i === last))
+                    surroundCheck.push([x + 1, y - 1]);
+                if (i === last)
+                    surroundCheck.push([x + 1, y + 1]);
+            }
             if ((isHorz && (isMatched || i === 0)) || (!isHorz && !isMatched))
                 surroundCheck.push([x - 1, y]);
             if ((isHorz && (isMatched || i === last)) || (!isHorz && !isMatched))
@@ -223,21 +233,24 @@ class Grid {
             return wordPos[0][0] !== wordPos[1][0];
         return null;
     }
+    // Fix incorrect grid area
+    redefineArea() {
+        this.usedArea = [...this.wordMap.values()].reduce(([lx, ly, hx, hy], list) => {
+            return [
+                Math.min(lx, list[0][0]),
+                Math.min(ly, list[0][1]),
+                Math.max(hx, list[list.length - 1][0]),
+                Math.max(hy, list[list.length - 1][1]),
+            ];
+        }, [Infinity, Infinity, -Infinity, -Infinity]);
+        this.usedArea[2]++;
+        this.usedArea[3]++;
+        this.outdatedArea = false;
+    }
     // TODO: fix extra space after stringify form
     stringify() {
-        if (this.outdatedArea) {
-            this.usedArea = [...this.wordMap.values()].reduce(([lx, ly, hx, hy], list) => {
-                return [
-                    Math.min(lx, list[0][0]),
-                    Math.min(ly, list[0][1]),
-                    Math.max(hx, list[list.length - 1][0]),
-                    Math.max(hy, list[list.length - 1][1]),
-                ];
-            }, [Infinity, Infinity, -Infinity, -Infinity]);
-            this.usedArea[2]++;
-            this.usedArea[3]++;
-            this.outdatedArea = false;
-        }
+        if (this.outdatedArea)
+            this.redefineArea();
         let str = "";
         for (let y = this.usedArea[1]; y < this.usedArea[3]; y++) {
             for (let x = this.usedArea[0]; x < this.usedArea[2]; x++) {
@@ -281,24 +294,32 @@ function shuffleInPlace(arr) {
     }
     return arr;
 }
-async function main() {
+let _crosswordId = 0;
+async function generateCrossword() {
+    const id = _crosswordId++;
     const grid = new Grid();
-    // @ts-expect-error
-    window.w = Words;
     const root = (await Words.get({ length: [6, 20] }).next()).value;
-    console.log(root);
-    grid.add(root, 0, 0, randBool());
     let children = Words.get({
         characters: { from: root, useExact: true },
     });
-    const cycles = 50;
-    const tryFor = 1000;
+    grid.add(root, 0, 0, randBool());
+    const cycles = 50; // Number of words to attempt
+    const tryFor = 1000; // Retry limit for a branch
+    performance.mark(`crossword-${id}-start`);
     for (let _ = 0; _ < cycles; _++) {
         try {
-            const branch = grid.wordList[randInt(grid.wordList.length)];
+            // Prioritize recently added words
+            const totalWeight = grid.wordList.reduce((a, _, i) => a + i + 1, 0);
+            let weightedIndex = randInt(totalWeight);
+            let branchIndex = 0;
+            while (weightedIndex >= branchIndex + 1) {
+                weightedIndex -= ++branchIndex;
+            }
+            const branch = grid.wordList[branchIndex];
             const branchPos = grid.wordMap.get(branch);
             const childIsHorz = !grid.isHorizontal(branch);
             placeWord: for (let _ = 1; _ < tryFor; _++) {
+                // Refresh random word list if empty
                 const result = await children.next();
                 if (result.done) {
                     children = Words.get({
@@ -307,6 +328,7 @@ async function main() {
                     });
                     continue;
                 }
+                // Try each letter randomly to avoid going for earliest match
                 const child = result.value;
                 const randomIndices = shuffleInPlace(Array(child.length)
                     .fill(0)
@@ -334,7 +356,17 @@ async function main() {
                 throw err;
         }
     }
-    const gridStr = grid.stringify();
+    performance.mark(`crossword-${id}-end`);
+    return {
+        grid,
+        wordCount: grid.wordList.length,
+        successRate: grid.wordList.length / cycles,
+        duration: performance.measure(`crossword-${id}-duration`, `crossword-${id}-start`, `crossword-${id}-end`).duration,
+    };
+}
+async function main() {
+    const crossword = await generateCrossword();
+    const gridStr = crossword.grid.stringify();
     const table = document.createElement("table");
     let curRow;
     for (const char of gridStr) {
