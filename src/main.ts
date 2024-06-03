@@ -9,14 +9,23 @@ interface WordData {
 		from: string;
 	};
 }
-const ERRORS = {
-	WORD_LENGTH: "No word with requested length",
-	CHAR_MATCH: "Failed to find word with same letters",
-	RAND_TIME: "Failed to find word within reasonable time",
-
-	IMPROPER_LENGTH: "Invalid word length",
-	INVALID_CHARS: "Invalid character list",
-};
+class WordError extends Error {
+	public static get NO_MATCH() {
+		return new this("No words matching specification");
+	}
+	public static get CHAR_MATCH() {
+		return new this("Failed to find word with same letters");
+	}
+	public static get RAND_TIME() {
+		return new this("Failed to find word within reasonable time");
+	}
+	public static get IMPROPER_LENGTH() {
+		return new this("Invalid word length");
+	}
+	public static get INVALID_CHARS() {
+		return new this("Invalid character list");
+	}
+}
 class Words {
 	private static min_word_len = 3;
 	private static max_word_len = -Infinity;
@@ -43,51 +52,56 @@ class Words {
 	public static async get({
 		count = 1,
 		length,
-		characters,
+		characters: chars,
 	}: WordData): Promise<string[]> {
 		if (!this.list) await this.init();
 		if (count <= 0) return [];
 		switch (typeof length) {
 			case "number":
-				if (length < this.min_word_len) throw new Error(ERRORS.IMPROPER_LENGTH);
+				if (length < this.min_word_len) throw WordError.IMPROPER_LENGTH;
 				length = [length, length];
 				break;
 			case "object":
 				if (Math.min(...length) < this.min_word_len)
-					throw new Error(ERRORS.IMPROPER_LENGTH);
+					throw WordError.IMPROPER_LENGTH;
 				if (length[0] > length[1]) length[1] = length[0];
 				break;
 		}
-		if (characters && !/^[a-z]*$/i.test(characters.from))
-			throw new Error(ERRORS.INVALID_CHARS);
+		if (chars && !/^[a-z]*$/i.test(chars.from)) throw WordError.INVALID_CHARS;
 
 		const list = length
 			? [...this.listByLen.entries()]
 					.filter(([len]) => len >= length[0] && len <= length[1])
 					.flatMap(([, list]) => list)
 			: this.list;
+		if (!list.length) throw WordError.NO_MATCH;
 		const totalWeight = list.reduce((a, b) => a + b[1], 0);
-		const used = new Set<string>();
+		const ignore = new Set<string>();
+		// if (chars?.from) ignore.add(chars.from);
 
-		return new Array(count).fill(0).map(() => {
-			// Prevent infinite loop
-			for (let _ = 0; _ < 1000; _++) {
+		return new Array(count).fill(0).flatMap((_, i) => {
+			// Avoid infinite loop
+			for (let _ = 0; _ < 100; _++) {
+				if (ignore.size >= list.length) {
+					if (i <= 0) {
+						console.log(chars?.from);
+						throw WordError.NO_MATCH;
+					} else return [];
+				}
+
 				let index = randInt(totalWeight);
 				for (const [word, weight] of list) {
-					if (
+					const isMatch =
 						index < weight &&
-						!used.has(word) &&
-						(!characters ||
-							this.containsLetters(characters.from, word, characters.useExact))
-					) {
-						used.add(word);
-						return word;
-					} else {
-						index -= weight;
-					}
+						!ignore.has(word) &&
+						(!chars || this.containsLetters(chars.from, word, chars.useExact));
+					// console.log(word, chars?.from);
+					ignore.add(word);
+					if (isMatch) return word;
+					else index -= weight;
 				}
 			}
-			throw new Error(ERRORS.RAND_TIME);
+			throw WordError.RAND_TIME;
 		});
 	}
 
@@ -316,6 +330,7 @@ async function main() {
 	let fails = 0;
 	const cycles = 100;
 	for (let _ = 0; _ < cycles; _++) {
+		fails++;
 		try {
 			const branch = grid.wordList[randInt(grid.wordList.length)];
 			const branchPos = grid.wordMap.get(branch)!;
@@ -323,9 +338,9 @@ async function main() {
 			const children = await Words.get({
 				count: 5,
 				characters: { from: root, useExact: true },
+				// length: [4, Infinity],
 			});
 
-			fails++;
 			placeWord: for (const child of children) {
 				if (grid.wordMap.has(child)) continue;
 				const randomIndices = shuffle(
@@ -350,7 +365,8 @@ async function main() {
 				}
 			}
 		} catch (err) {
-			if (err !== ERRORS.CHAR_MATCH) throw err;
+			if (err instanceof WordError) console.error(err);
+			else throw err;
 		}
 	}
 	console.log(fails / cycles);
