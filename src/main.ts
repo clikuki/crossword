@@ -339,23 +339,36 @@ function shuffleInPlace<T>(arr: T[]): T[] {
 	return arr;
 }
 
-async function main() {
+interface Crossword {
+	grid: Grid;
+	wordCount: number;
+	successRate: number;
+	duration: number;
+}
+let _crosswordId = 0;
+async function generateCrossword(): Promise<Crossword> {
+	const id = _crosswordId++;
 	const grid = new Grid();
-	// @ts-expect-error
-	window.w = Words;
-
 	const root = (await Words.get({ length: [6, 20] }).next()).value;
-	console.log(root);
-	grid.add(root, 0, 0, randBool());
 	let children = Words.get({
 		characters: { from: root, useExact: true },
 	});
+	grid.add(root, 0, 0, randBool());
 
-	const cycles = 50; // Number of branches to attempt
+	const cycles = 50; // Number of words to attempt
 	const tryFor = 1000; // Retry limit for a branch
+	performance.mark(`crossword-${id}-start`);
 	for (let _ = 0; _ < cycles; _++) {
 		try {
-			const branch = grid.wordList[randInt(grid.wordList.length)];
+			// Prioritize recently added words
+			const totalWeight = grid.wordList.reduce((a, _, i) => a + i + 1, 0);
+			let weightedIndex = randInt(totalWeight);
+			let branchIndex = 0;
+			while (weightedIndex >= branchIndex + 1) {
+				weightedIndex -= ++branchIndex;
+			}
+
+			const branch = grid.wordList[branchIndex];
 			const branchPos = grid.wordMap.get(branch)!;
 			const childIsHorz = !grid.isHorizontal(branch);
 
@@ -397,8 +410,23 @@ async function main() {
 			else throw err;
 		}
 	}
+	performance.mark(`crossword-${id}-end`);
 
-	const gridStr = grid.stringify();
+	return {
+		grid,
+		wordCount: grid.wordList.length,
+		successRate: grid.wordList.length / cycles,
+		duration: performance.measure(
+			`crossword-${id}-duration`,
+			`crossword-${id}-start`,
+			`crossword-${id}-end`
+		).duration,
+	};
+}
+
+async function main() {
+	const crossword = await generateCrossword();
+	const gridStr = crossword.grid.stringify();
 	const table = document.createElement("table");
 	let curRow;
 	for (const char of gridStr) {
