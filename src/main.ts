@@ -2,12 +2,12 @@
 // TODO: Remove weird words in dataset
 
 interface WordData {
-	count?: number;
 	length?: number | [min: number, max: number];
 	characters?: {
 		useExact: boolean;
 		from: string;
 	};
+	ignore?: string[] | Set<string>;
 }
 class WordError extends Error {
 	public static get NO_MATCH() {
@@ -49,13 +49,12 @@ class Words {
 		}
 	}
 
-	public static async get({
-		count = 1,
+	public static async *get({
 		length,
+		ignore,
 		characters: chars,
-	}: WordData): Promise<string[]> {
+	}: WordData): AsyncGenerator<string> {
 		if (!this.list) await this.init();
-		if (count <= 0) return [];
 		switch (typeof length) {
 			case "number":
 				if (length < this.min_word_len) throw WordError.IMPROPER_LENGTH;
@@ -68,41 +67,34 @@ class Words {
 				break;
 		}
 		if (chars && !/^[a-z]*$/i.test(chars.from)) throw WordError.INVALID_CHARS;
+		if (ignore && Array.isArray(ignore)) ignore = new Set(ignore);
 
-		const list = length
-			? [...this.listByLen.entries()]
-					.filter(([len]) => len >= length[0] && len <= length[1])
-					.flatMap(([, list]) => list)
-			: this.list;
-		if (!list.length) throw WordError.NO_MATCH;
-		const totalWeight = list.reduce((a, b) => a + b[1], 0);
-		const ignore = new Set<string>();
-		// if (chars?.from) ignore.add(chars.from);
+		let totalWeight = 0;
+		const list = shuffleNew(
+			length === undefined
+				? this.list
+				: [...this.listByLen.entries()]
+						.filter(([len]) => len >= length[0] && len <= length[1])
+						.flatMap(([, list]) =>
+							list.filter(([word, freq]) => {
+								const match =
+									word != chars?.from &&
+									(!chars || this.containsLetters(chars.from, word, chars.useExact));
+								// && (!ignore || !ignore.has(word));
+								if (match) totalWeight += freq;
+								return match;
+							})
+						)
+		);
+		if (!list.length) {
+			console.log(list.length, length, ignore, chars);
+			throw WordError.NO_MATCH;
+		}
+		if (totalWeight === 0) totalWeight = list.reduce((a, [, f]) => a + f, 0);
 
-		return new Array(count).fill(0).flatMap((_, i) => {
-			// Avoid infinite loop
-			for (let _ = 0; _ < 100; _++) {
-				if (ignore.size >= list.length) {
-					if (i <= 0) {
-						console.log(chars?.from);
-						throw WordError.NO_MATCH;
-					} else return [];
-				}
-
-				let index = randInt(totalWeight);
-				for (const [word, weight] of list) {
-					const isMatch =
-						index < weight &&
-						!ignore.has(word) &&
-						(!chars || this.containsLetters(chars.from, word, chars.useExact));
-					// console.log(word, chars?.from);
-					ignore.add(word);
-					if (isMatch) return word;
-					else index -= weight;
-				}
-			}
-			throw WordError.RAND_TIME;
-		});
+		while (list.length) {
+			yield list.pop()![0];
+		}
 	}
 
 	private static letterCount(word: string): Map<string, number> {
@@ -301,13 +293,24 @@ class Grid {
 function randBool(): boolean {
 	return Math.random() < 0.5 ? false : true;
 }
-function randFloat(max: number, min = 0): number {
+function randFloat(max = 1, min = 0): number {
 	return Math.random() * (max - min) + min;
 }
 function randInt(max: number, min = 0): number {
 	return Math.floor(randFloat(min, max));
 }
-function shuffle<T>(arr: T[]): T[] {
+function shuffleNew<T>(arr: T[]): T[] {
+	const shuffled: T[] = [];
+	const used = new Set<number>();
+	while (shuffled.length < arr.length) {
+		let index = randInt(arr.length);
+		while (used.has(index)) index = (index + 1) % arr.length;
+		used.add(index);
+		shuffled.push(arr[index]);
+	}
+	return shuffled;
+}
+function shuffleInPlace<T>(arr: T[]): T[] {
 	let i = arr.length;
 	while (--i > 0) {
 		const j = Math.floor(Math.random() * (i + 1));
@@ -323,27 +326,32 @@ async function main() {
 	// @ts-expect-error
 	window.w = Words;
 
-	const [root] = await Words.get({ length: [6, 20] });
-	grid.add(root, 0, 0, randBool());
+	const root = (await Words.get({ length: [6, 20] }).next()).value;
 	console.log(root);
+	grid.add(root, 0, 0, randBool());
+	let children = Words.get({
+		characters: { from: root, useExact: true },
+	});
 
-	let fails = 0;
-	const cycles = 100;
+	const cycles = 50;
+	const tryFor = 1000;
 	for (let _ = 0; _ < cycles; _++) {
-		fails++;
 		try {
 			const branch = grid.wordList[randInt(grid.wordList.length)];
 			const branchPos = grid.wordMap.get(branch)!;
 			const childIsHorz = !grid.isHorizontal(branch);
-			const children = await Words.get({
-				count: 5,
-				characters: { from: root, useExact: true },
-				// length: [4, Infinity],
-			});
 
-			placeWord: for (const child of children) {
-				if (grid.wordMap.has(child)) continue;
-				const randomIndices = shuffle(
+			placeWord: for (let _ = 1; _ < tryFor; _++) {
+				const result = await children.next();
+				if (result.done) {
+					children = Words.get({
+						characters: { from: root, useExact: true },
+						ignore: grid.wordList,
+					});
+					continue;
+				}
+				const child = result.value;
+				const randomIndices = shuffleInPlace(
 					Array(child.length)
 						.fill(0)
 						.map((_, i) => i)
@@ -358,7 +366,6 @@ async function main() {
 					else y -= childIndex;
 
 					if (grid.overlap(child, x, y, childIsHorz) <= OVERLAP.MATCH) {
-						fails--;
 						grid.add(child, x, y, childIsHorz);
 						break placeWord;
 					}
@@ -369,7 +376,6 @@ async function main() {
 			else throw err;
 		}
 	}
-	console.log(fails / cycles);
 
 	const gridStr = grid.stringify();
 	const table = document.createElement("table");
@@ -381,7 +387,6 @@ async function main() {
 		}
 		if (char !== "\n") {
 			const charEl = document.createElement("td");
-			// if (char !== " ") charEl.textContent = char;
 			charEl.textContent = char === " " ? "" : char;
 			curRow.appendChild(charEl);
 		}
