@@ -70,22 +70,23 @@ class Words {
 		if (ignore && Array.isArray(ignore)) ignore = new Set(ignore);
 
 		let totalWeight = 0;
-		const list = shuffleNew(
+		const list =
 			length === undefined
-				? this.list
-				: [...this.listByLen.entries()]
-						.filter(([len]) => len >= length[0] && len <= length[1])
-						.flatMap(([, list]) =>
-							list.filter(([word, freq]) => {
-								const match =
-									word != chars?.from &&
-									(!chars || this.containsLetters(chars.from, word, chars.useExact));
-								// && (!ignore || !ignore.has(word));
-								if (match) totalWeight += freq;
-								return match;
-							})
-						)
-		);
+				? shuffleNew(this.list)
+				: shuffleInPlace(
+						[...this.listByLen.entries()]
+							.filter(([len]) => len >= length[0] && len <= length[1])
+							.flatMap(([, list]) =>
+								list.filter(([word, freq]) => {
+									const match =
+										word != chars?.from &&
+										(!chars || this.containsLetters(chars.from, word, chars.useExact));
+									// && (!ignore || !ignore.has(word));
+									if (match) totalWeight += freq;
+									return match;
+								})
+							)
+				  );
 		if (!list.length) {
 			console.log(list.length, length, ignore, chars);
 			throw WordError.NO_MATCH;
