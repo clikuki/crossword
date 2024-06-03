@@ -216,7 +216,13 @@ class Grid {
 		return true;
 	}
 
-	public overlap(word: string, x: number, y: number, isHorz = true): OVERLAP {
+	public overlap(
+		word: string,
+		x: number,
+		y: number,
+		isHorz = true,
+		noCornerTouching = true
+	): OVERLAP {
 		let overlap: undefined | [number, number];
 		for (let i = 0; i < word.length; i++) {
 			// Check if letter at x,y exists ...
@@ -232,10 +238,18 @@ class Grid {
 				}
 			}
 
-			// Check top and bottom
+			// Check if cell touches existing letters
 			const surroundCheck: [number, number][] = [];
 			const isMatched = JSON.stringify(overlap) === `[${x},${y}]`;
 			const last = word.length - 1;
+			if (noCornerTouching) {
+				if (i === 0) surroundCheck.push([x - 1, y - 1]);
+				if ((isHorz && i === last) || (!isHorz && i === 0))
+					surroundCheck.push([x - 1, y + 1]);
+				if ((isHorz && i === 0) || (!isHorz && i === last))
+					surroundCheck.push([x + 1, y - 1]);
+				if (i === last) surroundCheck.push([x + 1, y + 1]);
+			}
 			if ((isHorz && (isMatched || i === 0)) || (!isHorz && !isMatched))
 				surroundCheck.push([x - 1, y]);
 			if ((isHorz && (isMatched || i === last)) || (!isHorz && !isMatched))
@@ -260,24 +274,27 @@ class Grid {
 		return null;
 	}
 
+	// Fix incorrect grid area
+	public redefineArea() {
+		this.usedArea = [...this.wordMap.values()].reduce(
+			([lx, ly, hx, hy], list) => {
+				return [
+					Math.min(lx, list[0][0]),
+					Math.min(ly, list[0][1]),
+					Math.max(hx, list[list.length - 1][0]),
+					Math.max(hy, list[list.length - 1][1]),
+				];
+			},
+			[Infinity, Infinity, -Infinity, -Infinity]
+		);
+		this.usedArea[2]++;
+		this.usedArea[3]++;
+		this.outdatedArea = false;
+	}
+
 	// TODO: fix extra space after stringify form
 	public stringify(): string {
-		if (this.outdatedArea) {
-			this.usedArea = [...this.wordMap.values()].reduce(
-				([lx, ly, hx, hy], list) => {
-					return [
-						Math.min(lx, list[0][0]),
-						Math.min(ly, list[0][1]),
-						Math.max(hx, list[list.length - 1][0]),
-						Math.max(hy, list[list.length - 1][1]),
-					];
-				},
-				[Infinity, Infinity, -Infinity, -Infinity]
-			);
-			this.usedArea[2]++;
-			this.usedArea[3]++;
-			this.outdatedArea = false;
-		}
+		if (this.outdatedArea) this.redefineArea();
 
 		let str = "";
 		for (let y = this.usedArea[1]; y < this.usedArea[3]; y++) {
@@ -334,8 +351,8 @@ async function main() {
 		characters: { from: root, useExact: true },
 	});
 
-	const cycles = 50;
-	const tryFor = 1000;
+	const cycles = 50; // Number of branches to attempt
+	const tryFor = 1000; // Retry limit for a branch
 	for (let _ = 0; _ < cycles; _++) {
 		try {
 			const branch = grid.wordList[randInt(grid.wordList.length)];
@@ -343,6 +360,7 @@ async function main() {
 			const childIsHorz = !grid.isHorizontal(branch);
 
 			placeWord: for (let _ = 1; _ < tryFor; _++) {
+				// Refresh random word list if empty
 				const result = await children.next();
 				if (result.done) {
 					children = Words.get({
@@ -351,6 +369,8 @@ async function main() {
 					});
 					continue;
 				}
+
+				// Try each letter randomly to avoid going for earliest match
 				const child = result.value;
 				const randomIndices = shuffleInPlace(
 					Array(child.length)
