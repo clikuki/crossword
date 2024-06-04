@@ -1,8 +1,9 @@
 // TODO: Use bigger but dirtier english dataset > https://github.com/harshnative/words-dataset
 // TODO: Remove weird words in dataset
 
+type LenRange = number | [min: number, max: number];
 interface WordData {
-	length?: number | [min: number, max: number];
+	length?: LenRange;
 	characters?: {
 		useExact: boolean;
 		from: string;
@@ -49,7 +50,8 @@ class Words {
 		}
 	}
 
-	public static async *get({
+	// Quickly get many words
+	public static async *multiple({
 		length,
 		ignore,
 		characters: chars,
@@ -80,22 +82,83 @@ class Words {
 								list.filter(([word, freq]) => {
 									const match =
 										word != chars?.from &&
+										(!ignore || !ignore.has(word)) &&
 										(!chars || this.containsLetters(chars.from, word, chars.useExact));
-									// && (!ignore || !ignore.has(word));
 									if (match) totalWeight += freq;
 									return match;
 								})
 							)
 				  );
-		if (!list.length) {
-			console.log(list.length, length, ignore, chars);
-			throw WordError.NO_MATCH;
-		}
+		if (!list.length) throw WordError.NO_MATCH;
 		if (totalWeight === 0) totalWeight = list.reduce((a, [, f]) => a + f, 0);
 
 		while (list.length) {
 			yield list.pop()![0];
 		}
+	}
+
+	// Quickly get one word
+	public static async single({
+		length,
+		ignore,
+		characters: chars,
+	}: WordData): Promise<string> {
+		if (!this.list) await this.init();
+		switch (typeof length) {
+			case "number":
+				if (length < this.min_word_len) throw WordError.IMPROPER_LENGTH;
+				length = [length, length];
+				break;
+			case "object":
+				if (Math.min(...length) < this.min_word_len)
+					throw WordError.IMPROPER_LENGTH;
+				if (length[0] > length[1]) length[1] = length[0];
+				break;
+		}
+		if (chars && !/^[a-z]*$/i.test(chars.from)) throw WordError.INVALID_CHARS;
+		if (ignore && Array.isArray(ignore)) ignore = new Set(ignore);
+
+		if (length === undefined) {
+			const totalWeight = this.list.reduce((acc, [, cur]) => acc + cur, 0);
+			let index = randInt(totalWeight);
+			for (const [word, weight] of this.list) {
+				if (
+					index < weight &&
+					(!ignore || !ignore.has(word)) &&
+					(!chars || this.containsLetters(chars.from, word, chars.useExact))
+				) {
+					return word;
+				} else {
+					index -= weight;
+				}
+			}
+		} else {
+			let totalWeight = 0;
+			const lists: [string, number][][] = [];
+			for (let i = length[0]; i < length[1]; i++) {
+				const list = this.listByLen.get(i);
+				if (list) {
+					lists.push(list);
+					totalWeight += this.listByLen.get(i)!.reduce((a, [, c]) => a + c, 0);
+				}
+			}
+
+			let index = randInt(totalWeight);
+			for (const sublist of lists) {
+				for (const [word, weight] of sublist) {
+					if (
+						index < weight &&
+						(!ignore || !ignore.has(word)) &&
+						(!chars || this.containsLetters(chars.from, word, chars.useExact))
+					) {
+						return word;
+					} else {
+						index -= weight;
+					}
+				}
+			}
+		}
+		throw WordError.NO_MATCH;
 	}
 
 	private static letterCount(word: string): Map<string, number> {
@@ -345,18 +408,40 @@ interface Crossword {
 	successRate: number;
 	duration: number;
 }
+interface CrosswordGenParams {
+	grid?: Grid;
+	letters?: string | LenRange;
+	exactLetters?: boolean;
+	branchAttempts?: number;
+	wordAttempts?: number;
+}
 let _crosswordId = 0;
-async function generateCrossword(): Promise<Crossword> {
+async function generateCrossword(
+	params: CrosswordGenParams
+): Promise<Crossword> {
 	const id = _crosswordId++;
-	const grid = new Grid();
-	const root = (await Words.get({ length: [6, 20] }).next()).value;
-	let children = Words.get({
-		characters: { from: root, useExact: true },
-	});
-	grid.add(root, 0, 0, randBool());
+	const grid = params.grid ?? new Grid();
+	const childrenInit: WordData = {
+		ignore: grid.wordList,
+	};
 
-	const cycles = 50; // Number of words to attempt
-	const tryFor = 1000; // Retry limit for a branch
+	if (!grid.wordList.length) {
+		let root: string;
+		if (typeof params.letters === "string") {
+			root = params.letters;
+		} else {
+			root = await Words.single({ length: params.letters ?? [6, 20] });
+		}
+		grid.add(root, 0, 0, randBool());
+		childrenInit.characters = {
+			from: root,
+			useExact: Boolean(params.exactLetters),
+		};
+	}
+	let children = Words.multiple(childrenInit);
+
+	const cycles = params.wordAttempts ?? 50; // Number of words to attempt
+	const tryFor = params.branchAttempts ?? 1000; // Retry limit for a branch
 	performance.mark(`crossword-${id}-start`);
 	for (let _ = 0; _ < cycles; _++) {
 		try {
@@ -376,10 +461,7 @@ async function generateCrossword(): Promise<Crossword> {
 				// Refresh random word list if empty
 				const result = await children.next();
 				if (result.done) {
-					children = Words.get({
-						characters: { from: root, useExact: true },
-						ignore: grid.wordList,
-					});
+					children = Words.multiple(childrenInit);
 					continue;
 				}
 
@@ -425,7 +507,7 @@ async function generateCrossword(): Promise<Crossword> {
 }
 
 async function main() {
-	const crossword = await generateCrossword();
+	const crossword = await generateCrossword({ letters: [6, 20] });
 	const gridStr = crossword.grid.stringify();
 	const table = document.createElement("table");
 	let curRow;
