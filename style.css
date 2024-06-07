@@ -1,12 +1,48 @@
+body {
+	margin: 0;
+	font-family: "Trebuchet MS", sans-serif;
+	scrollbar-width: thin;
+}
+
+form {
+	float: left;
+	padding: 0.5rem;
+	border: 2px solid black;
+	border-top: none;
+	border-left: none;
+	border-bottom-right-radius: 1rem;
+	width: 20rem;
+}
+form > *:not(:last-child) {
+	margin-bottom: 0.5rem;
+}
+.radio_input span,
+.number_input label {
+	opacity: 0.8;
+}
+.number_input,
+.radio_input {
+	display: flex;
+	width: 100%;
+}
+.number_input {
+	justify-content: space-between;
+}
+.radio_input > span:first-child {
+	flex-grow: 1;
+}
+button {
+	float: right;
+}
+
 table {
 	--cell-size: 2.5rem;
 	border-collapse: collapse;
-	font-family: sans-serif;
+	margin: 1rem;
 	font-size: 2rem;
 	letter-spacing: 1px;
 	text-align: center;
 	text-transform: uppercase;
-	width: max-content;
 }
 
 tr {
