@@ -1,4 +1,8 @@
-import { generateCrossword, Crossword } from "./crossword.js";
+import {
+	generateCrossword,
+	Crossword,
+	CrosswordGenParams,
+} from "./crossword.js";
 
 // TODO: Use bigger but dirtier english dataset > https://github.com/harshnative/words-dataset
 // TODO: Remove weird words in dataset
@@ -20,7 +24,7 @@ async function buildCrosswordHTML(crossword: Crossword) {
 	}
 
 	const tableEl = document.querySelector("#crossword") as HTMLTableElement;
-	tableEl.appendChild(tableContents);
+	tableEl.replaceChildren(tableContents);
 }
 
 generateCrossword({
@@ -28,3 +32,34 @@ generateCrossword({
 	wordAttempts: 25,
 	avoidCorners: true,
 }).then(buildCrosswordHTML);
+
+const form = document.querySelector("form")!;
+form.addEventListener(
+	"submit",
+	(e) => {
+		e.preventDefault();
+
+		const data = new FormData(form);
+		const crosswordSettings: CrosswordGenParams = {};
+		for (const [key, value] of data) {
+			switch (key) {
+				case "exactLetters":
+					crosswordSettings.exactLetters = !!+value;
+					break;
+				case "branchAttempts":
+					crosswordSettings.branchAttempts = +value;
+					break;
+				case "wordAttempts":
+					crosswordSettings.wordAttempts = +value;
+					break;
+				case "avoidCorners":
+					crosswordSettings.avoidCorners = !!+value;
+					break;
+			}
+		}
+
+		console.log(crosswordSettings);
+		generateCrossword(crosswordSettings).then(buildCrosswordHTML);
+	},
+	false
+);

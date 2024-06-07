@@ -13,31 +13,45 @@
 				<span>Use exact letters:</span>
 				<span class="gap"></span>
 				<span>
-					<input type="radio" name="exactLetters" id="exactLetters1" value="true" />
+					<input type="radio" name="exactLetters" id="exactLetters1" value="1" />
 					<label for="exactLetters1">True</label>
 				</span>
 				<span>
-					<input type="radio" name="exactLetters" id="exactLetters2" value="false" />
+					<input type="radio" name="exactLetters" id="exactLetters2" value="0" />
 					<label for="exactLetters2">False</label>
 				</span>
 			</div>
 			<div class="number_input">
-				<label for="branchAttempts">Branch Attempts: </label>
-				<input type="number" name="branchAttempts" id="branchAttempts" value="50" />
+				<label for="wordAttempts">Word Attempts: </label>
+				<input
+					type="number"
+					name="wordAttempts"
+					id="wordAttempts"
+					value="1000"
+					min="1"
+					max="10000"
+				/>
 			</div>
 			<div class="number_input">
-				<label for="wordAttempts">Word Attempts: </label>
-				<input type="number" name="wordAttempts" id="wordAttempts" value="1000" />
+				<label for="branchAttempts">Branch Attempts: </label>
+				<input
+					type="number"
+					name="branchAttempts"
+					id="branchAttempts"
+					value="50"
+					min="1"
+					max="1000"
+				/>
 			</div>
 			<div class="radio_input">
 				<span>Avoid Corners:</span>
 				<span class="gap"></span>
 				<span>
-					<input type="radio" name="avoidCorners" id="avoidCorners1" value="true" />
+					<input type="radio" name="avoidCorners" id="avoidCorners1" value="1" />
 					<label for="avoidCorners1">True</label>
 				</span>
 				<span>
-					<input type="radio" name="avoidCorners" id="avoidCorners2" value="false" />
+					<input type="radio" name="avoidCorners" id="avoidCorners2" value="0" />
 					<label for="avoidCorners2">False</label>
 				</span>
 			</div>
