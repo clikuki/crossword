@@ -7,5 +7,45 @@
 		<script src="main.js" type="module"></script>
 		<link rel="stylesheet" href="style.css" />
 	</head>
-	<body></body>
+	<body>
+		<form>
+			<div class="radio_input">
+				<span>Use exact letters:</span>
+				<span class="gap"></span>
+				<span>
+					<input type="radio" name="exactLetters" id="exactLetters1" value="true" />
+					<label for="exactLetters1">True</label>
+				</span>
+				<span>
+					<input type="radio" name="exactLetters" id="exactLetters2" value="false" />
+					<label for="exactLetters2">False</label>
+				</span>
+			</div>
+			<div class="number_input">
+				<label for="branchAttempts">Branch Attempts: </label>
+				<input type="number" name="branchAttempts" id="branchAttempts" value="50" />
+			</div>
+			<div class="number_input">
+				<label for="wordAttempts">Word Attempts: </label>
+				<input type="number" name="wordAttempts" id="wordAttempts" value="1000" />
+			</div>
+			<div class="radio_input">
+				<span>Avoid Corners:</span>
+				<span class="gap"></span>
+				<span>
+					<input type="radio" name="avoidCorners" id="avoidCorners1" value="true" />
+					<label for="avoidCorners1">True</label>
+				</span>
+				<span>
+					<input type="radio" name="avoidCorners" id="avoidCorners2" value="false" />
+					<label for="avoidCorners2">False</label>
+				</span>
+			</div>
+			<button type="submit" id="make">New Crossword</button>
+		</form>
+
+		<div style="display: flex;">
+			<table id="crossword"></table>
+		</div>
+	</body>
 </html>
